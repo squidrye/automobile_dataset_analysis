@@ -1,0 +1,260 @@
+
+```{r}
+library(tidyverse) 
+library(ggplot2)
+library(readr)
+
+df<-read.csv("Automobile_data.csv", header = TRUE)
+str(df)
+```
+
+
+```{r}
+# Check how many '?' entries in each column
+colSums(df == '?')
+```
+
+```{r}
+# Check how many "?" entries by row
+table(rowSums(df == "?"))
+```
+
+```{r}
+# Check for missing values
+sapply(df, function(x) sum(is.na(x)))
+```
+
+Data Cleaning
+
+```{r}
+# Firstly, let's take a look at "num.of.doors" variable, since it is a categorial variable
+levels(df$num.of.doors) 
+df %>% filter(num.of.doors == "?") %>% select(make, body.style)
+table(df$make,df$num.of.doors)
+table(df$body.style,df$num.of.doors)
+```
+
+```{r}
+# Plot body style vs number of doors (colours: vehicle make)
+ggplot(df, aes(num.of.doors, body.style)) + geom_jitter(aes(color=make), size = 3) + labs(title = "All vehicle makes") # all data
+ggplot(filter(df,make=="mazda" | make=="dodge"), aes(num.of.doors, body.style)) + geom_jitter(aes(color=make), size = 3) + labs(title = "Mazda, Dodge") 
+```
+
+It seems that most sedans are four doors across the brands, especially for Mazda and Dodge. Let's assign the 4 to the "?" entries for number of doors
+
+```{r}
+df$num.of.doors[df$num.of.doors == "?"] <- "four"
+```
+
+Now, let's take a look at the remaining variables with "?" entries. Let's'set these entries to "NA"
+
+```{r}
+df$bore[df$bore == "?"] <- NA
+df$stroke[df$stroke == "?"] <- NA
+df$horsepower[df$horsepower == "?"] <- NA
+df$peak.rpm[df$peak.rpm == "?"] <- NA
+df$price[df$price == "?"] <- NA
+df$normalized.losses[df$normalized.losses == "?"] <- NA
+
+#convert to numerics
+
+df$bore<-as.numeric(as.character(df$bore))
+df$stroke<-as.numeric(as.character(df$stroke))
+df$horsepower<-as.numeric(as.character(df$horsepower))
+df$peak.rpm<-as.numeric(as.character(df$peak.rpm))
+df$price<-as.numeric(as.character(df$price))
+df$normalized.losses<-as.numeric(as.character(df$normalized.losses))
+```
+
+MICE (Multivariate Imputation via Chained Equations)
+
+The mice package in R helps to impute missing values with plausible data values. The mice package provides a function md.pattern() to get a better understanding of the pattern of the missing data The mice() function takes care of the imputing process
+
+```{r}
+library(mice)
+
+# Remove categorial variables
+df.num <- df[sapply(df, is.numeric)]
+md.pattern(df.num)
+tempData <- mice(df.num,m=1,maxit=5,meth='pmm',seed=500)
+summary(tempData)
+
+# m  – Refers to 5 imputed data sets
+# maxit – Refers to no. of iterations taken to impute missing values
+# method – Refers to method used in imputation. pmm refers to predictive mean matching and is used for numerical variables
+```
+
+
+```{r}
+# To check imputed values
+tempData$imp$horsepower
+tempData$imp$stroke
+tempData$imp$bore
+tempData$imp$peak.rpm
+tempData$imp$normalized.losses
+```
+
+
+```{r}
+# Plot of variables (scatter plot)
+xyplot(tempData, horsepower ~ stroke + bore + peak.rpm,pch=18,cex=1)
+```
+
+```{r}
+df.num <- complete(tempData,1)
+
+df.non_num <- df[, -which(names(df) %in% names(df.num))]
+df <- cbind(df.num, df.non_num)
+
+# Final check on missing entries
+sapply(df, function(x) sum(is.na(x)))
+sapply(df, function(x) sum(df == "?"))
+```
+
+data Visualisation: Numerical Data
+```{r}
+
+```
+
+```{r}
+# 1. To visualise the relationship between price and car specifications
+# Scatter plot
+df.num %>% select(-c(symboling)) %>%
+    gather(-price, key = "var", value = "Specifications") %>%
+    ggplot(aes(x = price, y = Specifications)) +
+    geom_point() +
+    facet_wrap(~ var, scales = "free") +
+    ggtitle('Relationship between Price & Specifications')
+
+# Correlation matrix with colours
+library(corrplot)
+df.num %>% select(-c(symboling,normalized.losses)) %>% as.matrix() %>% cor() %>% corrplot(method = "number")
+```
+
+Data Visualization: Categorial Data
+
+1.Car make
+
+```{r}
+# Car Make (car company)
+df %>% group_by(make) %>% summarise(count = n()) %>%  
+    ggplot(aes(x= reorder(make,count),y=count)) + geom_bar(stat = "identity") + coord_flip() +
+    xlab("Car Make") + ylab("Count")
+
+# Boxplot
+df %>% select(make,price) %>%  ggplot(aes(x= make,y=price)) + geom_boxplot() + coord_flip() +  xlab("Car Make") + ylab("Price")
+```
+
+2. Fuel Type
+
+The average price of a diesel car is higher than that of gas cars. This may explain why more gas cars were sold as compared to diesel cars.
+
+```{r}
+# Fuel type
+df %>% group_by(fuel.type) %>% summarise(count = n()) %>%  
+    ggplot(aes(x= reorder(fuel.type,count),y=count)) + geom_bar(stat = "identity") +
+    xlab("Fuel type") + ylab("Count")
+
+# Boxplot
+df %>% select(fuel.type,price) %>%  ggplot(aes(x= fuel.type,y=price)) + geom_boxplot() +  xlab("Fuel Type") + ylab("Price")
+```
+
+3. Aspiration
+
+The average price of cars with turbo aspiration is higher than that of standard aspiration. This may explain why more cars with standard aspiration were sold as compared to cars with turbo aspiration
+
+```{r}
+# Aspiration
+df %>% group_by(aspiration) %>% summarise(count = n()) %>%  
+    ggplot(aes(x= reorder(aspiration,count),y=count)) + geom_bar(stat = "identity") +
+    xlab("Aspiration") + ylab("Count")
+
+# Boxplot
+df %>% select(aspiration,price) %>%  ggplot(aes(x= aspiration,y=price)) + geom_boxplot() +  xlab("Aspiration") + ylab("Price")
+```
+
+4. Engine Location
+
+```{r}
+# Engine Location
+df %>% group_by(engine.location) %>% summarise(count = n()) %>%  
+    ggplot(aes(x= reorder(engine.location,count),y=count)) + geom_bar(stat = "identity") +
+    xlab("Engine Location") + ylab("Count")
+
+# Boxplot
+df %>% select(engine.location,price) %>%  ggplot(aes(x= engine.location,y=price)) + geom_boxplot() +  xlab("Engine Location") + ylab("Price")
+```
+
+5. Engine Type
+```{r}
+# Engine Type
+df %>% group_by(engine.type) %>% summarise(count = n()) %>%  
+    ggplot(aes(x= reorder(engine.type,count),y=count)) + geom_bar(stat = "identity") +
+    xlab("Engine Type") + ylab("Count")
+
+# Boxplot
+df %>% select(engine.type,price) %>%  ggplot(aes(x= engine.type,y=price)) + geom_boxplot() +  xlab("Engine Type") + ylab("Price")
+```
+
+
+6. Fuel System
+```{r}
+# Fuel System
+df %>% group_by(fuel.system) %>% summarise(count = n()) %>%  
+    ggplot(aes(x= reorder(fuel.system,count),y=count)) + geom_bar(stat = "identity") +
+    xlab("Fuel System") + ylab("Count")
+
+# Boxplot
+df %>% select(fuel.system,price) %>%  ggplot(aes(x= fuel.system,y=price)) + geom_boxplot() +  xlab("Fuel System") + ylab("Price")
+```
+
+
+7. Body Style
+
+```{r}
+# Body Style
+df %>% group_by(body.style) %>% summarise(count = n()) %>%  
+    ggplot(aes(x= reorder(body.style,count),y=count)) + geom_bar(stat = "identity") +
+    xlab("Body Style") + ylab("Count")
+
+# Boxplot
+df %>% select(body.style,price) %>%  ggplot(aes(x= body.style,y=price)) + geom_boxplot() +  xlab("Body Style") + ylab("Price")
+```
+
+
+8. Drive wheels
+```{r}
+# Drive wheels
+df %>% group_by(drive.wheels) %>% summarise(count = n()) %>%  
+    ggplot(aes(x= reorder(drive.wheels,count),y=count)) + geom_bar(stat = "identity") +
+    xlab("Drive Wheels") + ylab("Count")
+
+# Boxplot
+df %>% select(drive.wheels,price) %>%  ggplot(aes(x= drive.wheels,y=price)) + geom_boxplot() +  xlab("Drive Wheels") + ylab("Price")
+```
+
+9. Number of cylinders
+
+```{r}
+# Num of cylinders
+df %>% group_by(num.of.cylinders) %>% summarise(count = n()) %>%  
+    ggplot(aes(x= reorder(num.of.cylinders,count),y=count)) + geom_bar(stat = "identity") +
+    xlab("Num of cylinders") + ylab("Count")
+
+# Boxplot
+df %>% select(num.of.cylinders,price) %>%  ggplot(aes(x= num.of.cylinders,y=price)) + geom_boxplot() +  xlab("Num of cylinders") + ylab("Price")
+```
+
+
+9. Symboling
+
+```{r}
+# Symboling
+df %>% group_by(symboling) %>% summarise(count = n()) %>%  
+    ggplot(aes(x= reorder(symboling,count),y=count)) + geom_bar(stat = "identity") +
+    xlab("Symboling") + ylab("Count")
+
+# Boxplot
+df %>% select(symboling,price) %>% ggplot(aes(x= symboling,y=price)) + geom_boxplot() +  xlab("Symboling") + ylab("Price")
+```
+
